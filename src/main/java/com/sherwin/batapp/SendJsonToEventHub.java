@@ -13,53 +13,142 @@ import java.nio.charset.StandardCharsets;
 
 public class SendJsonToEventHub {
 
-    public static void main(String[] args) {
-        // Define AVRO schema
-        String avroSchema = "{\"type\": \"record\", \"name\": \"Example\", \"fields\": [{\"name\": \"field1\", \"type\": \"string\"}, {\"name\": \"field2\", \"type\": \"int\"}]}";
+   <dependency>
+    <groupId>com.microsoft.azure</groupId>
+    <artifactId>azure-eventhubs</artifactId>
+    <version>5.3.0</version>
+</dependency>
+<dependency>
+    <groupId>org.apache.avro</groupId>
+    <artifactId>avro</artifactId>
+    <version>1.10.2</version>
+</dependency>
+<dependency>
+    <groupId>com.fasterxml.jackson.core</groupId>
+    <artifactId>jackson-databind</artifactId>
+    <version>2.13.1</version>
+</dependency>
 
-        // Convert JSON to AVRO
-        String jsonString = "{\"field1\": \"value1\", \"field2\": 42}";
-        byte[] avroData = convertJsonToAvro(jsonString, avroSchema);
 
-        // Event Hubs connection string
-        String connectionString = "<YOUR_EVENT_HUB_CONNECTION_STRING>";
-        String eventHubName = "<YOUR_EVENT_HUB_NAME>";
 
-        // Create a producer client
-        EventHubProducerClient producer = new EventHubClientBuilder()
-                .connectionString(connectionString, eventHubName)
-                .buildProducerClient();
 
-        // Send AVRO data to Event Hub
-        EventData eventData = new EventData(avroData);
-        producer.send(eventData);
 
-        // Close the producer client
-        producer.close();
-    }
 
-    private static byte[] convertJsonToAvro(String jsonString, String avroSchema) {
-        try {
-            Schema schema = new Schema.Parser().parse(avroSchema);
-            GenericRecord record = new GenericData.Record(schema);
 
-            // Parse JSON data
-            JSONObject jsonObject = new JSONObject(jsonString);
-            for (Schema.Field field : schema.getFields()) {
-                record.put(field.name(), jsonObject.get(field.name()));
-            }
 
-            // Serialize AVRO data
+
+
+
+
+
+
+            import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.avro.Schema;
+import org.apache.avro.generic.GenericDatumReader;
+import org.apache.avro.generic.GenericDatumWriter;
+import org.apache.avro.generic.GenericRecord;
+import org.apache.avro.io.*;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+
+    public class AvroJsonConverter {
+        private static final ObjectMapper objectMapper = new ObjectMapper();
+
+        public static byte[] avroToJson(Schema schema, GenericRecord record) throws IOException {
             ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-            DatumWriter<GenericRecord> datumWriter = new SpecificDatumWriter<>(schema);
-            Encoder encoder = EncoderFactory.get().binaryEncoder(outputStream, null);
-            datumWriter.write(record, encoder);
+            JsonEncoder encoder = EncoderFactory.get().jsonEncoder(schema, outputStream);
+            DatumWriter<GenericRecord> writer = new GenericDatumWriter<>(schema);
+            writer.write(record, encoder);
             encoder.flush();
-            outputStream.close();
             return outputStream.toByteArray();
-        } catch (IOException e) {
-            e.printStackTrace();
-            return null;
+        }
+
+        public static GenericRecord jsonToAvro(Schema schema, byte[] json) throws IOException {
+            ByteArrayInputStream inputStream = new ByteArrayInputStream(json);
+            Decoder decoder = DecoderFactory.get().jsonDecoder(schema, inputStream);
+            DatumReader<GenericRecord> reader = new GenericDatumReader<>(schema);
+            return reader.read(null, decoder);
+        }
+
+        public static String toJson(Object object) throws IOException {
+            return objectMapper.writeValueAsString(object);
+        }
+
+        public static <T> T fromJson(String json, Class<T> clazz) throws IOException {
+            return objectMapper.readValue(json, clazz);
         }
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    import com.microsoft.azure.eventhubs.*;
+import org.apache.avro.Schema;
+import org.apache.avro.generic.GenericRecord;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+    public class EventHubAvroJsonExample {
+
+        private static final String EVENT_HUB_NAMESPACE = "<event_hub_namespace>";
+        private static final String EVENT_HUB_NAME = "<event_hub_name>";
+        private static final String SAS_KEY_NAME = "<sas_key_name>";
+        private static final String SAS_KEY = "<sas_key>";
+        private static final String CONNECTION_STRING_FORMAT = "Endpoint=sb://%s.servicebus.windows.net/;SharedAccessKeyName=%s;SharedAccessKey=%s;EntityPath=%s";
+
+        private static final Schema AVRO_SCHEMA = new Schema.Parser().parse("{ \"type\":\"record\", \"name\":\"test\", \"fields\":[{\"name\":\"name\",\"type\":\"string\"}]}");
+
+        public static void main(String[] args) throws Exception {
+            String connStr = String.format(CONNECTION_STRING_FORMAT, EVENT_HUB_NAMESPACE, SAS_KEY_NAME, SAS_KEY, EVENT_HUB_NAME);
+
+            EventHubClient eventHubClient = EventHubClient.createFromConnectionStringSync(connStr);
+            EventHubRuntimeInformation eventHubInfo = eventHubClient.getRuntimeInformation().get();
+
+            ExecutorService executorService = Executors.newSingleThreadExecutor();
+
+            for (String partitionId : eventHubInfo.getPartitionIds()) {
+                executorService.submit(() -> {
+                    try {
+                        PartitionReceiver receiver = eventHubClient.createReceiverSync("$Default", partitionId, EventHubClient.DEFAULT_CONSUMER_GROUP_NAME, ReceiverOptions.DEFAULT);
+
+                        while (true) {
+                            Iterable<EventData> messages = receiver.receiveSync(100);
+
+                            for (EventData eventData : messages) {
+                                byte[] avroMessage = eventData.getBytes();
+                                GenericRecord record = AvroJsonConverter.jsonToAvro(AVRO_SCHEMA, avroMessage);
+                                String json = AvroJsonConverter.toJson(record);
+                                System.out.println("Received message as JSON: " + json);
+
+                                // Example of converting JSON back to Avro
+                                GenericRecord avroRecord = AvroJsonConverter.fromJson(json, GenericRecord.class);
+                                byte[] avroBytes = AvroJsonConverter.avroToJson(AVRO_SCHEMA, avroRecord);
+                                // Process avroBytes...
+                            }
+                        }
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                });
+            }
+        }
+    }
+
 }
