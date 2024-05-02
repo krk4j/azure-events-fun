@@ -151,4 +151,36 @@ import java.util.concurrent.Executors;
         }
     }
 
+
+
+
+
+    package com.example;
+
+import com.microsoft.azure.functions.ExecutionContext;
+import com.microsoft.azure.functions.annotation.EventHubTrigger;
+import com.microsoft.azure.functions.annotation.FunctionName;
+import com.microsoft.azure.functions.annotation.StorageAccount;
+import org.apache.avro.Schema;
+import org.apache.avro.generic.GenericRecord;
+import java.nio.charset.StandardCharsets;
+
+    public class EventHubFunction {
+
+        private static final Schema AVRO_SCHEMA = new Schema.Parser().parse("{ \"type\":\"record\", \"name\":\"test\", \"fields\":[{\"name\":\"name\",\"type\":\"string\"}]}");
+
+        @FunctionName("avroEventHubProcessor")
+        public void avroEventHubProcessor(
+                @EventHubTrigger(name = "message", eventHubName = "your_event_hub_name", connection = "EventHubConnectionAppSetting") byte[] message,
+                final ExecutionContext context) {
+
+            GenericRecord record = AvroJsonConverter.jsonToAvro(AVRO_SCHEMA, message);
+            String json = AvroJsonConverter.toJson(record);
+            context.getLogger().info("Received message as JSON: " + json);
+
+            // Process the message as needed
+        }
+    }
+
+
 }
