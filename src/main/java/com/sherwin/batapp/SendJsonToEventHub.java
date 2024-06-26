@@ -1,101 +1,37 @@
-  // Testcontainers dependencies
+dependencies {
+    // Testcontainers dependencies
     testImplementation 'org.testcontainers:testcontainers:1.17.6'
     testImplementation 'org.testcontainers:junit-jupiter:1.17.6'
-    testImplementation 'org.testcontainers:azure-eventhubs:1.17.6'
+    testImplementation 'org.testcontainers:kafka:1.17.6'
+    testImplementation 'org.testcontainers:docker-compose:1.17.6'
 
-    // Azure Event Hubs dependencies
-    implementation 'com.azure:azure-messaging-eventhubs:5.10.0'
-    implementation 'com.azure:azure-identity:1.4.4'
+    // Kafka dependencies
+    implementation 'org.apache.kafka:kafka-clients:3.3.1'
 
     // JUnit dependencies
     testImplementation 'org.junit.jupiter:junit-jupiter-api:5.8.2'
     testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.8.2'
+}
 
 
-       import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Test;
-import org.testcontainers.containers.EventHubContainer;
-import org.testcontainers.utility.DockerImageName;
-import com.azure.messaging.eventhubs.*;
-import com.azure.identity.DefaultAzureCredentialBuilder;
+ private static final String DOCKER_COMPOSE_FILE = "src/test/resources/docker-compose.yml";
 
-import java.util.Arrays;
-import java.util.List;
-import java.util.concurrent.TimeUnit;
-
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
-public class EventHubTest {
-
-    private static EventHubContainer eventHubContainer;
-    private static EventHubProducerClient producer;
-    private static EventHubConsumerAsyncClient consumer;
+    private static DockerComposeContainer<?> composeContainer;
+    private static KafkaProducer<String, String> producer;
 
     @BeforeAll
     public static void setUp() {
-        // Start the Event Hub container
-        eventHubContainer = new EventHubContainer(DockerImageName.parse("mcr.microsoft.com/azure-event-hubs:latest"))
-                .withEnv("EVENTHUBS_NAMESPACE", "myeventhubnamespace")
-                .withEnv("EVENTHUB_NAME", "myeventhub");
-
-        eventHubContainer.start();
+        // Start Docker Compose container
+        composeContainer = new DockerComposeContainer<>(new File(DOCKER_COMPOSE_FILE))
+                .withExposedService("kafka_1", 9092, Wait.forListeningPort())
+                .withLocalCompose(true);
+        composeContainer.start();
 
         // Set up the producer
-        producer = new EventHubClientBuilder()
-                .connectionString(eventHubContainer.getEventHubConnectionString())
-                .eventHubName("myeventhub")
-                .buildProducerClient();
+        Properties producerProps = new Properties();
+        producerProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
+        producerProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+        producerProps.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
 
-        // Set up the consumer
-        consumer = new EventHubClientBuilder()
-                .connectionString(eventHubContainer.getEventHubConnectionString())
-                .eventHubName("myeventhub")
-                .consumerGroup(EventHubClientBuilder.DEFAULT_CONSUMER_GROUP_NAME)
-                .buildAsyncConsumerClient();
+        producer = new KafkaProducer<>(producerProps);
     }
-
-    @AfterAll
-    public static void tearDown() {
-        // Close the producer and consumer
-        producer.close();
-        consumer.close();
-
-        // Stop the Event Hub container
-        eventHubContainer.stop();
-    }
-
-    @Test
-    public void testSendAndReceive() throws InterruptedException {
-        // Send messages to Event Hub
-        List<EventData> allEvents = Arrays.asList(
-                new EventData("Event 1"),
-                new EventData("Event 2"),
-                new EventData("Event 3")
-        );
-
-        EventDataBatch eventDataBatch = producer.createBatch();
-        for (EventData eventData : allEvents) {
-            eventDataBatch.tryAdd(eventData);
-        }
-
-        producer.send(eventDataBatch);
-        System.out.println("Events sent successfully.");
-
-        // Receive messages from Event Hub
-        consumer.receive(false)
-                .subscribe(partitionEvent -> {
-                    System.out.printf("Received event from partition %s with sequence number %d.%n",
-                            partitionEvent.getPartitionContext().getPartitionId(),
-                            partitionEvent.getData().getSequenceNumber());
-                }, error -> {
-                    System.err.println("Error occurred while receiving: " + error);
-                });
-
-        // Keep the main thread alive for receiving events
-        TimeUnit.SECONDS.sleep(30);
-
-        // Check if messages were received
-        assertTrue(true, "Messages were received.");
-    }
-}
