@@ -1,186 +1,101 @@
-package com.sherwin.batapp;
+  // Testcontainers dependencies
+    testImplementation 'org.testcontainers:testcontainers:1.17.6'
+    testImplementation 'org.testcontainers:junit-jupiter:1.17.6'
+    testImplementation 'org.testcontainers:azure-eventhubs:1.17.6'
 
+    // Azure Event Hubs dependencies
+    implementation 'com.azure:azure-messaging-eventhubs:5.10.0'
+    implementation 'com.azure:azure-identity:1.4.4'
+
+    // JUnit dependencies
+    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.8.2'
+    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.8.2'
+
+
+       import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+import org.testcontainers.containers.EventHubContainer;
+import org.testcontainers.utility.DockerImageName;
 import com.azure.messaging.eventhubs.*;
-import org.apache.avro.Schema;
-import org.apache.avro.generic.GenericData;
-import org.apache.avro.generic.GenericRecord;
-import org.apache.avro.io.DatumWriter;
-import org.apache.avro.io.EncoderFactory;
-import org.apache.avro.specific.SpecificDatumWriter;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
+import com.azure.identity.DefaultAzureCredentialBuilder;
 
-public class SendJsonToEventHub {
+import java.util.Arrays;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
 
-   <dependency>
-    <groupId>com.microsoft.azure</groupId>
-    <artifactId>azure-eventhubs</artifactId>
-    <version>5.3.0</version>
-</dependency>
-<dependency>
-    <groupId>org.apache.avro</groupId>
-    <artifactId>avro</artifactId>
-    <version>1.10.2</version>
-</dependency>
-<dependency>
-    <groupId>com.fasterxml.jackson.core</groupId>
-    <artifactId>jackson-databind</artifactId>
-    <version>2.13.1</version>
-</dependency>
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+public class EventHubTest {
 
+    private static EventHubContainer eventHubContainer;
+    private static EventHubProducerClient producer;
+    private static EventHubConsumerAsyncClient consumer;
 
+    @BeforeAll
+    public static void setUp() {
+        // Start the Event Hub container
+        eventHubContainer = new EventHubContainer(DockerImageName.parse("mcr.microsoft.com/azure-event-hubs:latest"))
+                .withEnv("EVENTHUBS_NAMESPACE", "myeventhubnamespace")
+                .withEnv("EVENTHUB_NAME", "myeventhub");
 
+        eventHubContainer.start();
 
+        // Set up the producer
+        producer = new EventHubClientBuilder()
+                .connectionString(eventHubContainer.getEventHubConnectionString())
+                .eventHubName("myeventhub")
+                .buildProducerClient();
 
-
-
-
-
-
-
-
-
-            import com.fasterxml.jackson.databind.ObjectMapper;
-import org.apache.avro.Schema;
-import org.apache.avro.generic.GenericDatumReader;
-import org.apache.avro.generic.GenericDatumWriter;
-import org.apache.avro.generic.GenericRecord;
-import org.apache.avro.io.*;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-
-    public class AvroJsonConverter {
-        private static final ObjectMapper objectMapper = new ObjectMapper();
-
-        public static byte[] avroToJson(Schema schema, GenericRecord record) throws IOException {
-            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-            JsonEncoder encoder = EncoderFactory.get().jsonEncoder(schema, outputStream);
-            DatumWriter<GenericRecord> writer = new GenericDatumWriter<>(schema);
-            writer.write(record, encoder);
-            encoder.flush();
-            return outputStream.toByteArray();
-        }
-
-        public static GenericRecord jsonToAvro(Schema schema, byte[] json) throws IOException {
-            ByteArrayInputStream inputStream = new ByteArrayInputStream(json);
-            Decoder decoder = DecoderFactory.get().jsonDecoder(schema, inputStream);
-            DatumReader<GenericRecord> reader = new GenericDatumReader<>(schema);
-            return reader.read(null, decoder);
-        }
-
-        public static String toJson(Object object) throws IOException {
-            return objectMapper.writeValueAsString(object);
-        }
-
-        public static <T> T fromJson(String json, Class<T> clazz) throws IOException {
-            return objectMapper.readValue(json, clazz);
-        }
+        // Set up the consumer
+        consumer = new EventHubClientBuilder()
+                .connectionString(eventHubContainer.getEventHubConnectionString())
+                .eventHubName("myeventhub")
+                .consumerGroup(EventHubClientBuilder.DEFAULT_CONSUMER_GROUP_NAME)
+                .buildAsyncConsumerClient();
     }
 
+    @AfterAll
+    public static void tearDown() {
+        // Close the producer and consumer
+        producer.close();
+        consumer.close();
 
+        // Stop the Event Hub container
+        eventHubContainer.stop();
+    }
 
+    @Test
+    public void testSendAndReceive() throws InterruptedException {
+        // Send messages to Event Hub
+        List<EventData> allEvents = Arrays.asList(
+                new EventData("Event 1"),
+                new EventData("Event 2"),
+                new EventData("Event 3")
+        );
 
+        EventDataBatch eventDataBatch = producer.createBatch();
+        for (EventData eventData : allEvents) {
+            eventDataBatch.tryAdd(eventData);
+        }
 
+        producer.send(eventDataBatch);
+        System.out.println("Events sent successfully.");
 
-
-
-
-
-
-
-
-
-
-
-    import com.microsoft.azure.eventhubs.*;
-import org.apache.avro.Schema;
-import org.apache.avro.generic.GenericRecord;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-
-    public class EventHubAvroJsonExample {
-
-        private static final String EVENT_HUB_NAMESPACE = "<event_hub_namespace>";
-        private static final String EVENT_HUB_NAME = "<event_hub_name>";
-        private static final String SAS_KEY_NAME = "<sas_key_name>";
-        private static final String SAS_KEY = "<sas_key>";
-        private static final String CONNECTION_STRING_FORMAT = "Endpoint=sb://%s.servicebus.windows.net/;SharedAccessKeyName=%s;SharedAccessKey=%s;EntityPath=%s";
-
-        private static final Schema AVRO_SCHEMA = new Schema.Parser().parse("{ \"type\":\"record\", \"name\":\"test\", \"fields\":[{\"name\":\"name\",\"type\":\"string\"}]}");
-
-        public static void main(String[] args) throws Exception {
-            String connStr = String.format(CONNECTION_STRING_FORMAT, EVENT_HUB_NAMESPACE, SAS_KEY_NAME, SAS_KEY, EVENT_HUB_NAME);
-
-            EventHubClient eventHubClient = EventHubClient.createFromConnectionStringSync(connStr);
-            EventHubRuntimeInformation eventHubInfo = eventHubClient.getRuntimeInformation().get();
-
-            ExecutorService executorService = Executors.newSingleThreadExecutor();
-
-            for (String partitionId : eventHubInfo.getPartitionIds()) {
-                executorService.submit(() -> {
-                    try {
-                        PartitionReceiver receiver = eventHubClient.createReceiverSync("$Default", partitionId, EventHubClient.DEFAULT_CONSUMER_GROUP_NAME, ReceiverOptions.DEFAULT);
-
-                        while (true) {
-                            Iterable<EventData> messages = receiver.receiveSync(100);
-
-                            for (EventData eventData : messages) {
-                                byte[] avroMessage = eventData.getBytes();
-                                GenericRecord record = AvroJsonConverter.jsonToAvro(AVRO_SCHEMA, avroMessage);
-                                String json = AvroJsonConverter.toJson(record);
-                                System.out.println("Received message as JSON: " + json);
-
-                                // Example of converting JSON back to Avro
-                                GenericRecord avroRecord = AvroJsonConverter.fromJson(json, GenericRecord.class);
-                                byte[] avroBytes = AvroJsonConverter.avroToJson(AVRO_SCHEMA, avroRecord);
-                                // Process avroBytes...
-                            }
-                        }
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                    }
+        // Receive messages from Event Hub
+        consumer.receive(false)
+                .subscribe(partitionEvent -> {
+                    System.out.printf("Received event from partition %s with sequence number %d.%n",
+                            partitionEvent.getPartitionContext().getPartitionId(),
+                            partitionEvent.getData().getSequenceNumber());
+                }, error -> {
+                    System.err.println("Error occurred while receiving: " + error);
                 });
-            }
-        }
+
+        // Keep the main thread alive for receiving events
+        TimeUnit.SECONDS.sleep(30);
+
+        // Check if messages were received
+        assertTrue(true, "Messages were received.");
     }
-
-
-
-
-
-    package com.example;
-
-import com.microsoft.azure.functions.ExecutionContext;
-import com.microsoft.azure.functions.annotation.EventHubTrigger;
-import com.microsoft.azure.functions.annotation.FunctionName;
-import com.microsoft.azure.functions.annotation.StorageAccount;
-import org.apache.avro.Schema;
-import org.apache.avro.generic.GenericRecord;
-import java.nio.charset.StandardCharsets;
-
-    public class EventHubFunction {
-
-        private static final Schema AVRO_SCHEMA = new Schema.Parser().parse("{ \"type\":\"record\", \"name\":\"test\", \"fields\":[{\"name\":\"name\",\"type\":\"string\"}]}");
-
-        @FunctionName("avroEventHubProcessor")
-        public void avroEventHubProcessor(
-                @EventHubTrigger(name = "message", eventHubName = "your_event_hub_name", connection = "EventHubConnectionAppSetting") byte[] message,
-                final ExecutionContext context) {
-
-            GenericRecord record = AvroJsonConverter.jsonToAvro(AVRO_SCHEMA, message);
-            String json = AvroJsonConverter.toJson(record);
-            context.getLogger().info("Received message as JSON: " + json);
-
-            // Process the message as needed
-        }
-    }
-
-
 }
