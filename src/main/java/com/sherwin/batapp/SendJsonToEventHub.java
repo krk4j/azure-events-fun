@@ -1,55 +1,104 @@
-import com.ibm.mq.jms.MQQueueConnectionFactory;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.jms.annotation.EnableJms;
+import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.utility.DockerImageName;
+import javax.jms.ConnectionFactory;
+import com.ibm.mq.jms.MQConnectionFactory;
 import com.ibm.msg.client.wmq.WMQConstants;
 
-import javax.jms.Queue;
-import javax.jms.QueueConnection;
-import javax.jms.QueueSender;
-import javax.jms.QueueSession;
-import javax.jms.Session;
-import javax.jms.TextMessage;
+@Configuration
+@EnableJms
+public class MqConfig {
 
-public class MqTest {
-    private static final DockerImageName IBM_MQ_IMAGE = DockerImageName.parse("ibmcom/mq:latest");
-
-    public static void main(String[] args) {
-        try (GenericContainer<?> mqContainer = new GenericContainer<>(IBM_MQ_IMAGE)
+    @Bean
+    public GenericContainer<?> mqContainer() {
+        GenericContainer<?> container = new GenericContainer<>(DockerImageName.parse("ibmcom/mq:latest"))
                 .withExposedPorts(1414)
                 .withEnv("LICENSE", "accept")
                 .withEnv("MQ_QMGR_NAME", "QM1")
-                .withEnv("MQ_APP_PASSWORD", "passw0rd")) {
+                .withEnv("MQ_APP_PASSWORD", "passw0rd");
+        container.start();
+        return container;
+    }
 
-            mqContainer.start();
+    @Bean
+    public ConnectionFactory connectionFactory(GenericContainer<?> mqContainer) throws Exception {
+        MQConnectionFactory connectionFactory = new MQConnectionFactory();
+        connectionFactory.setHostName(mqContainer.getHost());
+        connectionFactory.setPort(mqContainer.getMappedPort(1414));
+        connectionFactory.setQueueManager("QM1");
+        connectionFactory.setChannel("DEV.APP.SVRCONN");
+        connectionFactory.setTransportType(WMQConstants.WMQ_CM_CLIENT);
+        connectionFactory.setStringProperty(WMQConstants.USERID, "app");
+        connectionFactory.setStringProperty(WMQConstants.PASSWORD, "passw0rd");
+        return connectionFactory;
+    }
+}
 
-            String mqHost = mqContainer.getHost();
-            Integer mqPort = mqContainer.getMappedPort(1414);
 
-            System.out.println("IBM MQ is running at " + mqHost + ":" + mqPort);
 
-            MQQueueConnectionFactory connectionFactory = new MQQueueConnectionFactory();
-            connectionFactory.setHostName(mqHost);
-            connectionFactory.setPort(mqPort);
-            connectionFactory.setQueueManager("QM1");
-            connectionFactory.setChannel("DEV.APP.SVRCONN");
-            connectionFactory.setTransportType(WMQConstants.WMQ_CM_CLIENT);
-            connectionFactory.setStringProperty(WMQConstants.USERID, "app");
-            connectionFactory.setStringProperty(WMQConstants.PASSWORD, "passw0rd");
 
-            QueueConnection queueConnection = connectionFactory.createQueueConnection();
-            queueConnection.start();
 
-            QueueSession queueSession = queueConnection.createQueueSession(false, Session.AUTO_ACKNOWLEDGE);
-            Queue queue = queueSession.createQueue("queue:///DEV.QUEUE.1");
-            QueueSender queueSender = queueSession.createSender(queue);
 
-            TextMessage message = queueSession.createTextMessage("Hello IBM MQ!");
-            queueSender.send(message);
+---------------
 
-            System.out.println("Message sent to IBM MQ: " + message.getText());
 
-            queueConnection.close();
+    import org.springframework.jms.annotation.JmsListener;
+import org.springframework.stereotype.Component;
 
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+@Component
+public class MqListener {
+
+    @JmsListener(destination = "DEV.QUEUE.1")
+    public void receiveMessage(String message) {
+        System.out.println("Received message: " + message);
+    }
+}
+
+
+
+-------------------------
+
+
+    import org.springframework.jms.core.JmsTemplate;
+import org.springframework.stereotype.Service;
+
+@Service
+public class MqSender {
+
+    private final JmsTemplate jmsTemplate;
+
+    public MqSender(JmsTemplate jmsTemplate) {
+        this.jmsTemplate = jmsTemplate;
+    }
+
+    public void sendMessage(String message) {
+        jmsTemplate.convertAndSend("DEV.QUEUE.1", message);
+    }
+}
+
+
+------------------------
+
+    import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.junit.jupiter.SpringExtension;
+
+@ExtendWith(SpringExtension.class)
+@SpringBootTest
+public class MqTest {
+
+    @Autowired
+    private MqSender mqSender;
+
+    @Test
+    public void testSendAndReceive() throws InterruptedException {
+        mqSender.sendMessage("Hello IBM MQ!");
+
+        // Wait for the message to be received
+        Thread.sleep(2000);
     }
 }
