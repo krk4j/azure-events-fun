@@ -1,10 +1,6 @@
-implementation 'com.ibm.mq:com.ibm.mq.allclient:9.2.3.0'
+import com.ibm.mq.jms.MQQueueConnectionFactory;
+import com.ibm.msg.client.wmq.WMQConstants;
 
-
-    import com.ibm.mq.MQQueueManager;
-import com.ibm.mq.constants.CMQC;
-import com.ibm.mq.jms.MQConnectionFactory;
-import javax.jms.JMSException;
 import javax.jms.Queue;
 import javax.jms.QueueConnection;
 import javax.jms.QueueSender;
@@ -19,7 +15,8 @@ public class MqTest {
         try (GenericContainer<?> mqContainer = new GenericContainer<>(IBM_MQ_IMAGE)
                 .withExposedPorts(1414)
                 .withEnv("LICENSE", "accept")
-                .withEnv("MQ_QMGR_NAME", "QM1")) {
+                .withEnv("MQ_QMGR_NAME", "QM1")
+                .withEnv("MQ_APP_PASSWORD", "passw0rd")) {
 
             mqContainer.start();
 
@@ -28,22 +25,26 @@ public class MqTest {
 
             System.out.println("IBM MQ is running at " + mqHost + ":" + mqPort);
 
-            MQConnectionFactory connectionFactory = new MQConnectionFactory();
+            MQQueueConnectionFactory connectionFactory = new MQQueueConnectionFactory();
             connectionFactory.setHostName(mqHost);
             connectionFactory.setPort(mqPort);
             connectionFactory.setQueueManager("QM1");
             connectionFactory.setChannel("DEV.APP.SVRCONN");
-            connectionFactory.setTransportType(CMQC.MQJMS_TP_CLIENT_MQ_TCPIP);
+            connectionFactory.setTransportType(WMQConstants.WMQ_CM_CLIENT);
+            connectionFactory.setStringProperty(WMQConstants.USERID, "app");
+            connectionFactory.setStringProperty(WMQConstants.PASSWORD, "passw0rd");
 
             QueueConnection queueConnection = connectionFactory.createQueueConnection();
             queueConnection.start();
 
             QueueSession queueSession = queueConnection.createQueueSession(false, Session.AUTO_ACKNOWLEDGE);
-            Queue queue = queueSession.createQueue("DEV.QUEUE.1");
+            Queue queue = queueSession.createQueue("queue:///DEV.QUEUE.1");
             QueueSender queueSender = queueSession.createSender(queue);
 
             TextMessage message = queueSession.createTextMessage("Hello IBM MQ!");
             queueSender.send(message);
+
+            System.out.println("Message sent to IBM MQ: " + message.getText());
 
             queueConnection.close();
 
