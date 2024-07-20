@@ -1,37 +1,54 @@
-dependencies {
-    // Testcontainers dependencies
-    testImplementation 'org.testcontainers:testcontainers:1.17.6'
-    testImplementation 'org.testcontainers:junit-jupiter:1.17.6'
-    testImplementation 'org.testcontainers:kafka:1.17.6'
-    testImplementation 'org.testcontainers:docker-compose:1.17.6'
-
-    // Kafka dependencies
-    implementation 'org.apache.kafka:kafka-clients:3.3.1'
-
-    // JUnit dependencies
-    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.8.2'
-    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.8.2'
-}
+implementation 'com.ibm.mq:com.ibm.mq.allclient:9.2.3.0'
 
 
- private static final String DOCKER_COMPOSE_FILE = "src/test/resources/docker-compose.yml";
+    import com.ibm.mq.MQQueueManager;
+import com.ibm.mq.constants.CMQC;
+import com.ibm.mq.jms.MQConnectionFactory;
+import javax.jms.JMSException;
+import javax.jms.Queue;
+import javax.jms.QueueConnection;
+import javax.jms.QueueSender;
+import javax.jms.QueueSession;
+import javax.jms.Session;
+import javax.jms.TextMessage;
 
-    private static DockerComposeContainer<?> composeContainer;
-    private static KafkaProducer<String, String> producer;
+public class MqTest {
+    private static final DockerImageName IBM_MQ_IMAGE = DockerImageName.parse("ibmcom/mq:latest");
 
-    @BeforeAll
-    public static void setUp() {
-        // Start Docker Compose container
-        composeContainer = new DockerComposeContainer<>(new File(DOCKER_COMPOSE_FILE))
-                .withExposedService("kafka_1", 9092, Wait.forListeningPort())
-                .withLocalCompose(true);
-        composeContainer.start();
+    public static void main(String[] args) {
+        try (GenericContainer<?> mqContainer = new GenericContainer<>(IBM_MQ_IMAGE)
+                .withExposedPorts(1414)
+                .withEnv("LICENSE", "accept")
+                .withEnv("MQ_QMGR_NAME", "QM1")) {
 
-        // Set up the producer
-        Properties producerProps = new Properties();
-        producerProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
-        producerProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
-        producerProps.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+            mqContainer.start();
 
-        producer = new KafkaProducer<>(producerProps);
+            String mqHost = mqContainer.getHost();
+            Integer mqPort = mqContainer.getMappedPort(1414);
+
+            System.out.println("IBM MQ is running at " + mqHost + ":" + mqPort);
+
+            MQConnectionFactory connectionFactory = new MQConnectionFactory();
+            connectionFactory.setHostName(mqHost);
+            connectionFactory.setPort(mqPort);
+            connectionFactory.setQueueManager("QM1");
+            connectionFactory.setChannel("DEV.APP.SVRCONN");
+            connectionFactory.setTransportType(CMQC.MQJMS_TP_CLIENT_MQ_TCPIP);
+
+            QueueConnection queueConnection = connectionFactory.createQueueConnection();
+            queueConnection.start();
+
+            QueueSession queueSession = queueConnection.createQueueSession(false, Session.AUTO_ACKNOWLEDGE);
+            Queue queue = queueSession.createQueue("DEV.QUEUE.1");
+            QueueSender queueSender = queueSession.createSender(queue);
+
+            TextMessage message = queueSession.createTextMessage("Hello IBM MQ!");
+            queueSender.send(message);
+
+            queueConnection.close();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
+}
