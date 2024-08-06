@@ -1,82 +1,38 @@
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClientBuilder;
-import org.apache.http.impl.client.DefaultHttpRequestRetryHandler;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-
-@Configuration
-public class HttpClientConfig {
-
-    @Bean
-    public CloseableHttpClient httpClient() {
-        return HttpClientBuilder.create()
-                .setRetryHandler(new DefaultHttpRequestRetryHandler(3, true))
-                .build();
-    }
-}
-
-
-
-
-import org.apache.http.client.methods.CloseableHttpResponse;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Service;
-
+import javax.servlet.Filter;
+import javax.servlet.FilterChain;
+import javax.servlet.FilterConfig;
+import javax.servlet.ServletException;
+import javax.servlet.ServletRequest;
+import javax.servlet.ServletResponse;
+import javax.servlet.annotation.WebFilter;
 import java.io.IOException;
 
-@Service
-public class MyService {
+@WebFilter(urlPatterns = "/*") // Adjust the URL pattern as needed
+public class CustomFilter implements Filter {
 
-    @Autowired
-    private CloseableHttpClient httpClient;
-
-    public String makeRequest() throws IOException {
-        HttpGet request = new HttpGet("http://example.com");
-        try (CloseableHttpResponse response = httpClient.execute(request)) {
-            return response.getEntity() != null ? response.getEntity().toString() : null;
-        }
-    }
-}
-
-
-import org.apache.http.client.methods.CloseableHttpResponse;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClientBuilder;
-import org.apache.http.impl.client.DefaultHttpRequestRetryHandler;
-import org.apache.http.protocol.HttpContext;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import java.io.IOException;
-
-@Configuration
-public class HttpClientConfig {
-
-    @Bean
-    public CloseableHttpClient httpClient() {
-        return HttpClientBuilder.create()
-                .setRetryHandler(new CustomRetryHandler())
-                .build();
-    }
-}
-
-class CustomRetryHandler extends DefaultHttpRequestRetryHandler {
-
-    public CustomRetryHandler() {
-        super(3, true);  // Set the max retry count and requestSentRetryEnabled
+    @Override
+    public void init(FilterConfig filterConfig) throws ServletException {
+        // Initialization logic, if needed
     }
 
     @Override
-    public boolean retryRequest(IOException exception, int executionCount, HttpContext context) {
-        if (executionCount >= 3) {
-            return false;  // Do not retry if over max retry count
+    public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
+            throws IOException, ServletException {
+        // Your custom processing logic here
+        System.out.println("Request intercepted by custom filter");
+
+        // Example: Check if the request is a POST request
+        if ("POST".equalsIgnoreCase(request.getMethod())) {
+            System.out.println("Processing POST request");
+            // Add your custom logic here
         }
-        if (exception instanceof org.apache.http.NoHttpResponseException) {
-            return true;  // Retry if the server dropped connection on us
-        }
-        // Add more custom retry logic here if needed
-        return super.retryRequest(exception, executionCount, context);
+
+        // Continue the request processing
+        chain.doFilter(request, response);
+    }
+
+    @Override
+    public void destroy() {
+        // Cleanup logic, if needed
     }
 }
