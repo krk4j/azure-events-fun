@@ -1,38 +1,54 @@
-import javax.servlet.Filter;
-import javax.servlet.FilterChain;
-import javax.servlet.FilterConfig;
-import javax.servlet.ServletException;
-import javax.servlet.ServletRequest;
-import javax.servlet.ServletResponse;
-import javax.servlet.annotation.WebFilter;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.http.HttpInputMessage;
+import org.springframework.http.HttpOutputMessage;
+import org.springframework.http.MediaType;
+import org.springframework.http.converter.AbstractHttpMessageConverter;
+
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
-@WebFilter(urlPatterns = "/*") // Adjust the URL pattern as needed
-public class CustomFilter implements Filter {
+public class MyCustomListConverter extends AbstractHttpMessageConverter<List<MyRequest>> {
 
-    @Override
-    public void init(FilterConfig filterConfig) throws ServletException {
-        // Initialization logic, if needed
+    private final ObjectMapper objectMapper;
+
+    public MyCustomListConverter() {
+        super(MediaType.APPLICATION_JSON);
+        this.objectMapper = new ObjectMapper();
     }
 
     @Override
-    public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
-            throws IOException, ServletException {
-        // Your custom processing logic here
-        System.out.println("Request intercepted by custom filter");
-
-        // Example: Check if the request is a POST request
-        if ("POST".equalsIgnoreCase(request.getMethod())) {
-            System.out.println("Processing POST request");
-            // Add your custom logic here
-        }
-
-        // Continue the request processing
-        chain.doFilter(request, response);
+    protected boolean supports(Class<?> clazz) {
+        return List.class.isAssignableFrom(clazz);
     }
 
     @Override
-    public void destroy() {
-        // Cleanup logic, if needed
+    protected List<MyRequest> readInternal(Class<? extends List<MyRequest>> clazz, HttpInputMessage inputMessage) throws IOException {
+        return objectMapper.readValue(inputMessage.getBody(), objectMapper.getTypeFactory().constructCollectionType(ArrayList.class, MyRequest.class));
+    }
+
+    @Override
+    protected void writeInternal(List<MyRequest> myRequests, HttpOutputMessage outputMessage) throws IOException {
+        objectMapper.writeValue(outputMessage.getBody(), myRequests);
+    }
+}
+
+
+
+
+
+
+import org.springframework.context.annotation.Configuration;
+import org.springframework.http.converter.HttpMessageConverter;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+import java.util.List;
+
+@Configuration
+public class WebConfig implements WebMvcConfigurer {
+
+    @Override
+    public void extendMessageConverters(List<HttpMessageConverter<?>> converters) {
+        converters.add(new MyCustomListConverter());
     }
 }
